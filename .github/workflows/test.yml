@@ -1,0 +1,21 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and test
+        run: |
+          /bin/bash -n install.sh
+          /bin/bash -n uninstall.sh
+          /bin/bash -n tests/test-install.sh
+          /usr/bin/plutil -lint tests/fixtures/Index.plist
+          /bin/bash tests/test-install.sh

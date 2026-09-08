@@ -1,0 +1,24 @@
+{
+  "assets": [
+    {
+      "id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+      "accessibilityLabel": "Tahoe Morning",
+      "url-4K-SDR-240FPS": "https://sylvan.apple.com/test/morning.mov"
+    },
+    {
+      "id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+      "accessibilityLabel": "Tahoe Day",
+      "url-4K-SDR-240FPS": "https://sylvan.apple.com/test/day.mov"
+    },
+    {
+      "id": "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC",
+      "accessibilityLabel": "Tahoe Evening",
+      "url-4K-SDR-240FPS": "https://sylvan.apple.com/test/evening.mov"
+    },
+    {
+      "id": "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD",
+      "accessibilityLabel": "Tahoe Night",
+      "url-4K-SDR-240FPS": "https://sylvan.apple.com/test/night.mov"
+    }
+  ]
+}
