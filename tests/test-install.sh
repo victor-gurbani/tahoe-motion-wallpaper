@@ -44,13 +44,15 @@ configuration="$(/usr/bin/plutil -extract AllSpacesAndDisplays.Desktop.Content.C
 asset_id="$(printf '%s' "$configuration" | /usr/bin/base64 -D | /usr/bin/plutil -extract assetID raw -)"
 idle_after="$(/usr/bin/plutil -extract AllSpacesAndDisplays.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
 
+printf 'normal provider=%s asset_id=%s idle_preserved=%s\n' \
+  "$provider" "$asset_id" "$([ "$idle_before" = "$idle_after" ] && printf yes || printf no)"
+
 test "$provider" = "com.apple.wallpaper.choice.aerials"
 test "$asset_id" = "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD"
 test "$idle_before" = "$idle_after"
 test -n "$(find "$test_home/Library/Application Support/TahoeMotionWallpaper/backups" -type f -name 'Index.before-install.*.plist' -print -quit)"
 
-# Emulate the bridge behavior seen on some Macs, where Foundation plist
-# containers arrive in JXA as plain JavaScript objects. Also use a deliberately
+# Emulate the bridge behavior seen on some Macs and use a deliberately
 # different store layout to verify recursive Desktop discovery.
 cp "$repository_root/tests/fixtures/Index-alternate.plist" "$store_dir/Index.plist"
 alternate_idle_before="$(/usr/bin/plutil -extract WallpaperSets.display-1.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
@@ -64,6 +66,9 @@ alternate_provider="$(/usr/bin/plutil -extract WallpaperSets.display-1.Desktop.C
 alternate_configuration="$(/usr/bin/plutil -extract WallpaperSets.display-1.Desktop.Content.Choices.0.Configuration raw "$store_dir/Index.plist")"
 alternate_asset_id="$(printf '%s' "$alternate_configuration" | /usr/bin/base64 -D | /usr/bin/plutil -extract assetID raw -)"
 alternate_idle_after="$(/usr/bin/plutil -extract WallpaperSets.display-1.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+
+printf 'alternate provider=%s asset_id=%s idle_preserved=%s\n' \
+  "$alternate_provider" "$alternate_asset_id" "$([ "$alternate_idle_before" = "$alternate_idle_after" ] && printf yes || printf no)"
 
 test "$alternate_provider" = "com.apple.wallpaper.choice.aerials"
 test "$alternate_asset_id" = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
