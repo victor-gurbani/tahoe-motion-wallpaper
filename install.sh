@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-VERSION="v1.0.0"
+VERSION="v1.0.1"
 REPOSITORY="victor-gurbani/tahoe-motion-wallpaper"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${VERSION}"
-EXPECTED_SCRIPT_SHA256="958e8b7342df9dfc8a98de5e767ee17dd155fed61a71475643e611c2ce8416a3"
+EXPECTED_SCRIPT_GIT_SHA1="cb443d663762a796e16c549eeac51104adf428cf"
 LABEL="com.varfield.tahoe-motion-wallpaper"
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -68,8 +68,14 @@ else
     --output "$script_temporary"
 fi
 
-actual_script_sha256="$(/usr/bin/shasum -a 256 "$script_temporary" | /usr/bin/awk '{print $1}')"
-if [ "$actual_script_sha256" != "$EXPECTED_SCRIPT_SHA256" ]; then
+script_size="$(/usr/bin/stat -f '%z' "$script_temporary")"
+actual_script_git_sha1="$(
+  {
+    printf 'blob %s\0' "$script_size"
+    /bin/cat "$script_temporary"
+  } | /usr/bin/shasum -a 1 | /usr/bin/awk '{print $1}'
+)"
+if [ "$actual_script_git_sha1" != "$EXPECTED_SCRIPT_GIT_SHA1" ]; then
   echo "Installer integrity check failed for tahoe-motion-wallpaper.js." >&2
   exit 1
 fi
