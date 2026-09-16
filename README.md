@@ -20,7 +20,7 @@ required. It uses macOS's built-in JavaScript for Automation and a LaunchAgent.
 Paste this into Terminal:
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.1/install.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.2/install.sh)"
 ```
 
 The installer:
@@ -71,7 +71,7 @@ Test a specific variant:
 ## Uninstall
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.1/uninstall.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.2/uninstall.sh)"
 ```
 
 Uninstalling removes the automation but preserves the current wallpaper,
@@ -81,6 +81,9 @@ Apple's downloaded videos, and the timestamped pre-install backup.
 
 - The wallpaper preference store is an undocumented macOS implementation
   detail and may change in future macOS releases.
+- The script accepts both Foundation-backed and plain-JavaScript plist container
+  shapes exposed by different JXA bridge behavior, and recursively discovers
+  `Desktop` sections while excluding screen-saver sections.
 - A manual wallpaper selection remains in effect until the next scheduled
   transition while the LaunchAgent is enabled.
 - Related independent project: [andmev/tahoe-wallpaper-switcher](https://github.com/andmev/tahoe-wallpaper-switcher),
