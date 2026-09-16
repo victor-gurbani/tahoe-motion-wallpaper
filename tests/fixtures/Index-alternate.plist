@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>WallpaperSets</key>
+  <dict>
+    <key>display-1</key>
+    <dict>
+      <key>Desktop</key>
+      <dict>
+        <key>Content</key>
+        <dict>
+          <key>Choices</key>
+          <array>
+            <dict>
+              <key>Configuration</key>
+              <data>YnBsaXN0MDDSAQIDBFR0eXBlU3VybFlpbWFnZUZpbGXRBQZYcmVsYXRpdmVfEDVmaWxlOi8vL1VzZXJzL3ZpY3Rvci9Eb2N1bWVudHMvVGFob2VfRHluYW1pY19EYXkuaGVpYwgNEhYgIywAAAAAAAABAQAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAZA==</data>
+              <key>Files</key><array/>
+              <key>Provider</key><string>com.apple.wallpaper.choice.image</string>
+            </dict>
+          </array>
+        </dict>
+      </dict>
+      <key>Idle</key>
+      <dict>
+        <key>Content</key>
+        <dict>
+          <key>Choices</key>
+          <array>
+            <dict>
+              <key>Configuration</key><data>ZHJpZnQ=</data>
+              <key>Files</key><array/>
+              <key>Provider</key><string>com.apple.wallpaper.choice.screen-saver</string>
+            </dict>
+          </array>
+        </dict>
+      </dict>
+    </dict>
+  </dict>
+</dict>
+</plist>

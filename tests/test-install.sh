@@ -44,10 +44,34 @@ configuration="$(/usr/bin/plutil -extract AllSpacesAndDisplays.Desktop.Content.C
 asset_id="$(printf '%s' "$configuration" | /usr/bin/base64 -D | /usr/bin/plutil -extract assetID raw -)"
 idle_after="$(/usr/bin/plutil -extract AllSpacesAndDisplays.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
 
+printf 'normal provider=%s asset_id=%s idle_preserved=%s\n' \
+  "$provider" "$asset_id" "$([ "$idle_before" = "$idle_after" ] && printf yes || printf no)"
+
 test "$provider" = "com.apple.wallpaper.choice.aerials"
 test "$asset_id" = "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD"
 test "$idle_before" = "$idle_after"
 test -n "$(find "$test_home/Library/Application Support/TahoeMotionWallpaper/backups" -type f -name 'Index.before-install.*.plist' -print -quit)"
+
+# Emulate the bridge behavior seen on some Macs and use a deliberately
+# different store layout to verify recursive Desktop discovery. This is a
+# dry-run because deepUnwrap is only a test shim; production plain-JS bridge
+# values retain their property-list leaf types.
+cp "$repository_root/tests/fixtures/Index-alternate.plist" "$store_dir/Index.plist"
+alternate_idle_before="$(/usr/bin/plutil -extract WallpaperSets.display-1.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+
+alternate_report="$(
+  TAHOE_MOTION_HOME="$test_home" \
+  TAHOE_MOTION_NO_RESTART=1 \
+  TAHOE_MOTION_FORCE_JS_PLIST=1 \
+    /usr/bin/osascript -l JavaScript "$installed_script" --period morning --dry-run
+)"
+alternate_idle_after="$(/usr/bin/plutil -extract WallpaperSets.display-1.Idle xml1 -o - "$store_dir/Index.plist" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+
+printf '%s\n' "$alternate_report"
+printf '%s' "$alternate_report" | /usr/bin/grep -q '"choiceCount"[[:space:]]*:[[:space:]]*1'
+printf '%s' "$alternate_report" | /usr/bin/grep -q '"changed"[[:space:]]*:[[:space:]]*true'
+printf '%s' "$alternate_report" | /usr/bin/grep -q '"asset_id"[[:space:]]*:[[:space:]]*"AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"'
+test "$alternate_idle_before" = "$alternate_idle_after"
 
 TAHOE_MOTION_HOME="$test_home" TAHOE_MOTION_NO_LAUNCHCTL=1 \
   /bin/bash "$repository_root/uninstall.sh"

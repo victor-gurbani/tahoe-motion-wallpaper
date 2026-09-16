@@ -18,10 +18,138 @@ const LABELS = {
   night: "Tahoe Night",
 };
 
+function isNilLike(value) {
+  if (value === null || value === undefined) return true;
+  try {
+    const marker = value.isNil;
+    if (typeof marker === "function") return Boolean(value.isNil());
+    if (typeof marker === "boolean") return marker;
+  } catch (_) {
+    // Plain JavaScript values do not expose NSObject's isNil helper.
+  }
+  return false;
+}
+
+function unwrapValue(value) {
+  if (isNilLike(value)) return null;
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  try {
+    return ObjC.unwrap(value);
+  } catch (_) {
+    return value;
+  }
+}
+
+function stringValue(value) {
+  const unwrapped = unwrapValue(value);
+  if (unwrapped === null || unwrapped === undefined) return null;
+  return String(unwrapped);
+}
+
+function nativeDictionaryKeys(value) {
+  if (isNilLike(value)) return null;
+  try {
+    const keys = ObjC.deepUnwrap(value.allKeys);
+    if (!Array.isArray(keys)) return null;
+    return keys.map(function (key) {
+      return String(key);
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function javascriptDictionaryKeys(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  try {
+    return Object.keys(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+function dictionaryKeys(value) {
+  const nativeKeys = nativeDictionaryKeys(value);
+  if (nativeKeys !== null) return nativeKeys;
+  return javascriptDictionaryKeys(value);
+}
+
+function isDictionary(value) {
+  return dictionaryKeys(value) !== null;
+}
+
+function dictionaryGet(dictionary, key) {
+  // Prefer the Foundation API. On macOS versions where JXA exposes a plain
+  // JavaScript object instead, the call throws and property access is used.
+  try {
+    return dictionary.objectForKey($(key));
+  } catch (_) {
+    try {
+      return dictionary[key];
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+function dictionarySet(dictionary, key, nativeValue, javascriptValue) {
+  try {
+    dictionary.setObjectForKey(nativeValue, $(key));
+    return;
+  } catch (_) {
+    // Plain JavaScript plist container: assign directly instead.
+  }
+  if (dictionary === null || dictionary === undefined) {
+    throw new Error("Cannot set plist dictionary key: " + key);
+  }
+  dictionary[key] = javascriptValue;
+}
+
+function isArray(value) {
+  if (Array.isArray(value)) return true;
+  if (isNilLike(value)) return false;
+  try {
+    return Array.isArray(ObjC.deepUnwrap(value));
+  } catch (_) {
+    return false;
+  }
+}
+
+function arrayCount(array) {
+  if (Array.isArray(array)) return array.length;
+  try {
+    return Number(array.count);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function arrayGet(array, index) {
+  if (Array.isArray(array)) return array[index];
+  try {
+    return array.objectAtIndex(index);
+  } catch (_) {
+    return null;
+  }
+}
+
 function environmentValue(name) {
   const value = $.NSProcessInfo.processInfo.environment.objectForKey($(name));
-  if (!value || value.isNil()) return null;
-  return ObjC.unwrap(value);
+  if (isNilLike(value)) return null;
+  return stringValue(value);
 }
 
 function paths() {
@@ -40,10 +168,10 @@ function paths() {
 
 function readText(path) {
   const data = $.NSData.dataWithContentsOfFile($(path));
-  if (!data || data.isNil()) throw new Error("Cannot read " + path);
+  if (isNilLike(data)) throw new Error("Cannot read " + path);
   const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
-  if (!string || string.isNil()) throw new Error("Cannot decode " + path);
-  return ObjC.unwrap(string);
+  if (isNilLike(string)) throw new Error("Cannot decode " + path);
+  return stringValue(string);
 }
 
 function fileExists(path) {
@@ -115,57 +243,45 @@ function periodFor(date) {
   return "evening";
 }
 
-function isFoundationKind(value, foundationClass) {
-  return Boolean(
-    value &&
-      typeof value.isKindOfClass === "function" &&
-      value.isKindOfClass(foundationClass)
-  );
-}
-
-function isDictionary(value) {
-  return isFoundationKind(value, $.NSDictionary.class);
-}
-
-function isArray(value) {
-  return isFoundationKind(value, $.NSArray.class);
-}
-
-function isData(value) {
-  return isFoundationKind(value, $.NSData.class);
-}
-
 function mutablePlist(path) {
   const data = $.NSData.dataWithContentsOfFile($(path));
-  if (!data || data.isNil()) throw new Error("Cannot read wallpaper store at " + path);
+  if (isNilLike(data)) throw new Error("Cannot read wallpaper store at " + path);
   const value = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
     data,
     $.NSPropertyListMutableContainersAndLeaves,
     null,
     null
   );
-  if (!value || value.isNil()) throw new Error("Cannot parse wallpaper store at " + path);
+  if (isNilLike(value)) throw new Error("Cannot parse wallpaper store at " + path);
+
+  // Diagnostic/test mode for the bridge shape observed on some Tahoe systems.
+  // It changes containers to ordinary JS objects but leaves production behavior
+  // untouched. Dry-run tests use this to exercise the fallback traversal path.
+  if (environmentValue("TAHOE_MOTION_FORCE_JS_PLIST") === "1") {
+    return ObjC.deepUnwrap(value);
+  }
   return value;
 }
 
 function encodedConfiguration(assetID) {
   const configuration = $.NSMutableDictionary.dictionary;
   configuration.setObjectForKey($(assetID), $("assetID"));
-  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsFormatError;
+  const encoded = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
     configuration,
     $.NSPropertyListBinaryFormat_v1_0,
     0,
     null
   );
-  if (!data || data.isNil()) throw new Error("Cannot encode aerial configuration");
-  return data;
+  if (isNilLike(encoded)) throw new Error("Cannot encode aerial configuration");
+  return encoded;
 }
 
 function currentAssetID(choice) {
-  const provider = choice.objectForKey("Provider");
-  if (!provider || provider.isNil() || ObjC.unwrap(provider) !== PROVIDER) return null;
-  const raw = choice.objectForKey("Configuration");
-  if (!isData(raw)) return null;
+  const provider = dictionaryGet(choice, "Provider");
+  if (isNilLike(provider) || stringValue(provider) !== PROVIDER) return null;
+  const raw = dictionaryGet(choice, "Configuration");
+  if (isNilLike(raw)) return null;
   try {
     const decoded = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
       raw,
@@ -173,68 +289,104 @@ function currentAssetID(choice) {
       null,
       null
     );
-    if (!isDictionary(decoded)) return null;
-    const assetID = decoded.objectForKey("assetID");
-    if (!assetID || assetID.isNil()) return null;
-    return ObjC.unwrap(assetID);
+    if (isNilLike(decoded)) return null;
+    const assetID = dictionaryGet(decoded, "assetID");
+    return isNilLike(assetID) ? null : stringValue(assetID);
   } catch (_) {
     return null;
   }
 }
 
 function updateDesktop(desktop, assetID, encoded, report) {
-  const content = desktop.objectForKey("Content");
+  const content = dictionaryGet(desktop, "Content");
   if (!isDictionary(content)) return;
-  const choices = content.objectForKey("Choices");
+  const choices = dictionaryGet(content, "Choices");
   if (!isArray(choices)) return;
 
   let changedHere = false;
-  const count = Number(choices.count);
+  const count = arrayCount(choices);
   for (let index = 0; index < count; index += 1) {
-    const choice = choices.objectAtIndex(index);
+    const choice = arrayGet(choices, index);
     if (!isDictionary(choice)) continue;
     const current = currentAssetID(choice);
     report.currentAssetIDs.push(current);
     report.choiceCount += 1;
     if (current === assetID) continue;
-    choice.setObjectForKey($(PROVIDER), $("Provider"));
-    choice.setObjectForKey(encoded, $("Configuration"));
-    choice.setObjectForKey($.NSMutableArray.array, $("Files"));
+
+    dictionarySet(choice, "Provider", $(PROVIDER), PROVIDER);
+    dictionarySet(choice, "Configuration", encoded, encoded);
+    dictionarySet(choice, "Files", $.NSMutableArray.array, []);
     changedHere = true;
     report.changed = true;
   }
-  if (changedHere) desktop.setObjectForKey($.NSDate.date, $("LastSet"));
+  if (changedHere) {
+    dictionarySet(desktop, "LastSet", $.NSDate.date, new Date());
+  }
 }
 
-function updateContainer(container, assetID, encoded, report) {
-  if (!isDictionary(container)) return;
-  const desktop = container.objectForKey("Desktop");
-  if (isDictionary(desktop)) updateDesktop(desktop, assetID, encoded, report);
+function normalizedSectionName(key) {
+  return String(key).toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function walkDesktopTree(value, assetID, encoded, report) {
+  const keys = dictionaryKeys(value);
+  if (keys !== null) {
+    keys.forEach(function (key) {
+      const normalized = normalizedSectionName(key);
+
+      // Never descend into screen-saver state.
+      if (normalized === "idle" || normalized === "screensaver") return;
+
+      const child = dictionaryGet(value, key);
+      if (normalized === "desktop") {
+        if (isDictionary(child)) updateDesktop(child, assetID, encoded, report);
+        return;
+      }
+      walkDesktopTree(child, assetID, encoded, report);
+    });
+    return;
+  }
+
+  if (isArray(value)) {
+    const count = arrayCount(value);
+    for (let index = 0; index < count; index += 1) {
+      walkDesktopTree(arrayGet(value, index), assetID, encoded, report);
+    }
+  }
 }
 
 function updateDesktopTree(root, assetID, encoded, report) {
-  ["AllSpacesAndDisplays", "SystemDefault"].forEach(function (key) {
-    updateContainer(root.objectForKey($(key)), assetID, encoded, report);
-  });
-
-  ["Displays", "Spaces"].forEach(function (key) {
-    const collection = root.objectForKey($(key));
-    if (!isDictionary(collection)) return;
-    const identifiers = ObjC.deepUnwrap(collection.allKeys);
-    identifiers.forEach(function (identifier) {
-      updateContainer(collection.objectForKey($(identifier)), assetID, encoded, report);
-    });
-  });
+  walkDesktopTree(root, assetID, encoded, report);
 }
 
 function savePlist(path, value) {
-  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
-    value,
-    $.NSPropertyListBinaryFormat_v1_0,
-    0,
-    null
-  );
-  if (!data || data.isNil()) throw new Error("Cannot encode wallpaper store");
+  let data = null;
+  try {
+    data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+      value,
+      $.NSPropertyListBinaryFormat_v1_0,
+      0,
+      null
+    );
+  } catch (_) {
+    data = null;
+  }
+
+  // Plain JS root containers require wrapping; Foundation roots do not.
+  if (isNilLike(data)) {
+    try {
+      data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+        ObjC.wrap(value),
+        $.NSPropertyListBinaryFormat_v1_0,
+        0,
+        null
+      );
+    } catch (_) {
+      data = null;
+    }
+  }
+
+  if (isNilLike(data)) throw new Error("Cannot encode wallpaper store");
   if (!data.writeToFileAtomically($(path), true)) {
     throw new Error("Cannot atomically write wallpaper store at " + path);
   }
@@ -310,7 +462,13 @@ function run(argv) {
   };
   const encoded = encodedConfiguration(desired.id);
   updateDesktopTree(index, desired.id, encoded, report);
-  if (report.choiceCount === 0) throw new Error("No Desktop wallpaper choices were found");
+  if (report.choiceCount === 0) {
+    const keys = dictionaryKeys(index);
+    throw new Error(
+      "No Desktop wallpaper choices were found. Top-level keys: " +
+        (keys === null ? "non-dictionary root" : keys.join(", "))
+    );
+  }
 
   if (options.dryRun) return JSON.stringify(report, null, 2);
 
