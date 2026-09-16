@@ -52,67 +52,98 @@ function stringValue(value) {
   return String(unwrapped);
 }
 
-function normalizePlist(value) {
+function nativeDictionaryKeys(value) {
+  if (isNilLike(value)) return null;
   try {
-    const normalized = ObjC.deepUnwrap(value);
-    return normalized === undefined ? value : normalized;
+    const keys = ObjC.deepUnwrap(value.allKeys);
+    if (!Array.isArray(keys)) return null;
+    return keys.map(function (key) {
+      return String(key);
+    });
   } catch (_) {
-    return value;
+    return null;
   }
 }
 
-function isData(value) {
-  if (isNilLike(value)) return false;
-  try {
-    if (value.base64EncodedStringWithOptions !== undefined) return true;
-  } catch (_) {
-    // Not an Objective-C NSData proxy.
+function javascriptDictionaryKeys(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
   }
   try {
-    if (value.isKindOfClass !== undefined) {
-      return Boolean(value.isKindOfClass($.NSData.class));
-    }
+    return Object.keys(value);
   } catch (_) {
-    // Plain JavaScript values do not expose NSObject selectors.
+    return null;
   }
-  return false;
+}
+
+function dictionaryKeys(value) {
+  const nativeKeys = nativeDictionaryKeys(value);
+  if (nativeKeys !== null) return nativeKeys;
+  return javascriptDictionaryKeys(value);
 }
 
 function isDictionary(value) {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      !isData(value)
-  );
-}
-
-function isArray(value) {
-  return Array.isArray(value);
+  return dictionaryKeys(value) !== null;
 }
 
 function dictionaryGet(dictionary, key) {
-  if (!isDictionary(dictionary)) return null;
-  return dictionary[key];
+  // Prefer the Foundation API. On macOS versions where JXA exposes a plain
+  // JavaScript object instead, the call throws and property access is used.
+  try {
+    return dictionary.objectForKey($(key));
+  } catch (_) {
+    try {
+      return dictionary[key];
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
-function dictionarySet(dictionary, key, value) {
-  if (!isDictionary(dictionary)) {
+function dictionarySet(dictionary, key, nativeValue, javascriptValue) {
+  try {
+    dictionary.setObjectForKey(nativeValue, $(key));
+    return;
+  } catch (_) {
+    // Plain JavaScript plist container: assign directly instead.
+  }
+  if (dictionary === null || dictionary === undefined) {
     throw new Error("Cannot set plist dictionary key: " + key);
   }
-  dictionary[key] = value;
+  dictionary[key] = javascriptValue;
 }
 
-function dictionaryKeys(dictionary) {
-  return isDictionary(dictionary) ? Object.keys(dictionary) : [];
+function isArray(value) {
+  if (Array.isArray(value)) return true;
+  if (isNilLike(value)) return false;
+  try {
+    return Array.isArray(ObjC.deepUnwrap(value));
+  } catch (_) {
+    return false;
+  }
 }
 
 function arrayCount(array) {
-  return Array.isArray(array) ? array.length : 0;
+  if (Array.isArray(array)) return array.length;
+  try {
+    return Number(array.count);
+  } catch (_) {
+    return 0;
+  }
 }
 
 function arrayGet(array, index) {
-  return Array.isArray(array) ? array[index] : null;
+  if (Array.isArray(array)) return array[index];
+  try {
+    return array.objectAtIndex(index);
+  } catch (_) {
+    return null;
+  }
 }
 
 function environmentValue(name) {
@@ -223,39 +254,42 @@ function mutablePlist(path) {
   );
   if (isNilLike(value)) throw new Error("Cannot parse wallpaper store at " + path);
 
-  // Normalize Foundation NSArray/NSDictionary containers into a normal JS graph.
-  // This removes macOS/JXA bridge differences while preserving leaf ObjC values
-  // such as NSData where no native JavaScript scalar representation exists.
-  return normalizePlist(value);
+  // Diagnostic/test mode for the bridge shape observed on some Tahoe systems.
+  // It changes containers to ordinary JS objects but leaves production behavior
+  // untouched. Dry-run tests use this to exercise the fallback traversal path.
+  if (environmentValue("TAHOE_MOTION_FORCE_JS_PLIST") === "1") {
+    return ObjC.deepUnwrap(value);
+  }
+  return value;
 }
 
 function encodedConfiguration(assetID) {
   const configuration = $.NSMutableDictionary.dictionary;
   configuration.setObjectForKey($(assetID), $("assetID"));
-  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsFormatError;
+  const encoded = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
     configuration,
     $.NSPropertyListBinaryFormat_v1_0,
     0,
     null
   );
-  if (isNilLike(data)) throw new Error("Cannot encode aerial configuration");
-  return data;
+  if (isNilLike(encoded)) throw new Error("Cannot encode aerial configuration");
+  return encoded;
 }
 
 function currentAssetID(choice) {
   const provider = dictionaryGet(choice, "Provider");
   if (isNilLike(provider) || stringValue(provider) !== PROVIDER) return null;
   const raw = dictionaryGet(choice, "Configuration");
-  if (!isData(raw)) return null;
+  if (isNilLike(raw)) return null;
   try {
-    const decodedNative = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
+    const decoded = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
       raw,
       $.NSPropertyListImmutable,
       null,
       null
     );
-    const decoded = normalizePlist(decodedNative);
-    if (!isDictionary(decoded)) return null;
+    if (isNilLike(decoded)) return null;
     const assetID = dictionaryGet(decoded, "assetID");
     return isNilLike(assetID) ? null : stringValue(assetID);
   } catch (_) {
@@ -278,13 +312,16 @@ function updateDesktop(desktop, assetID, encoded, report) {
     report.currentAssetIDs.push(current);
     report.choiceCount += 1;
     if (current === assetID) continue;
-    dictionarySet(choice, "Provider", PROVIDER);
-    dictionarySet(choice, "Configuration", encoded);
-    dictionarySet(choice, "Files", []);
+
+    dictionarySet(choice, "Provider", $(PROVIDER), PROVIDER);
+    dictionarySet(choice, "Configuration", encoded, encoded);
+    dictionarySet(choice, "Files", $.NSMutableArray.array, []);
     changedHere = true;
     report.changed = true;
   }
-  if (changedHere) dictionarySet(desktop, "LastSet", new Date());
+  if (changedHere) {
+    dictionarySet(desktop, "LastSet", $.NSDate.date, new Date());
+  }
 }
 
 function normalizedSectionName(key) {
@@ -292,8 +329,9 @@ function normalizedSectionName(key) {
 }
 
 function walkDesktopTree(value, assetID, encoded, report) {
-  if (isDictionary(value)) {
-    dictionaryKeys(value).forEach(function (key) {
+  const keys = dictionaryKeys(value);
+  if (keys !== null) {
+    keys.forEach(function (key) {
       const normalized = normalizedSectionName(key);
 
       // Never descend into screen-saver state.
@@ -322,18 +360,32 @@ function updateDesktopTree(root, assetID, encoded, report) {
 }
 
 function savePlist(path, value) {
-  let propertyList = value;
+  let data = null;
   try {
-    propertyList = ObjC.wrap(value);
+    data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+      value,
+      $.NSPropertyListBinaryFormat_v1_0,
+      0,
+      null
+    );
   } catch (_) {
-    // If the bridge already returned a Foundation object, serialize it directly.
+    data = null;
   }
-  const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
-    propertyList,
-    $.NSPropertyListBinaryFormat_v1_0,
-    0,
-    null
-  );
+
+  // Plain JS root containers require wrapping; Foundation roots do not.
+  if (isNilLike(data)) {
+    try {
+      data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
+        ObjC.wrap(value),
+        $.NSPropertyListBinaryFormat_v1_0,
+        0,
+        null
+      );
+    } catch (_) {
+      data = null;
+    }
+  }
+
   if (isNilLike(data)) throw new Error("Cannot encode wallpaper store");
   if (!data.writeToFileAtomically($(path), true)) {
     throw new Error("Cannot atomically write wallpaper store at " + path);
@@ -411,8 +463,11 @@ function run(argv) {
   const encoded = encodedConfiguration(desired.id);
   updateDesktopTree(index, desired.id, encoded, report);
   if (report.choiceCount === 0) {
-    const keys = isDictionary(index) ? dictionaryKeys(index).join(", ") : "non-dictionary root";
-    throw new Error("No Desktop wallpaper choices were found. Top-level keys: " + keys);
+    const keys = dictionaryKeys(index);
+    throw new Error(
+      "No Desktop wallpaper choices were found. Top-level keys: " +
+        (keys === null ? "non-dictionary root" : keys.join(", "))
+    );
   }
 
   if (options.dryRun) return JSON.stringify(report, null, 2);
