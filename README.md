@@ -20,7 +20,7 @@ required. It uses macOS's built-in JavaScript for Automation and a LaunchAgent.
 Paste this into Terminal:
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.0/install.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.1/install.sh)"
 ```
 
 The installer:
@@ -71,7 +71,7 @@ Test a specific variant:
 ## Uninstall
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.0/uninstall.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.1/uninstall.sh)"
 ```
 
 Uninstalling removes the automation but preserves the current wallpaper,
