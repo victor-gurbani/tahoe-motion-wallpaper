@@ -63,6 +63,17 @@ function hasSelector(value, name) {
 
 function isJavaScriptDictionary(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  // JXA's Objective-C proxies can report Object.prototype as their prototype,
+  // so selector presence must win over prototype-based JS object detection.
+  if (
+    hasSelector(value, "objectForKey") ||
+    hasSelector(value, "objectAtIndex") ||
+    hasSelector(value, "base64EncodedStringWithOptions")
+  ) {
+    return false;
+  }
+
   try {
     const prototype = Object.getPrototypeOf(value);
     return prototype === Object.prototype || prototype === null;
@@ -72,11 +83,11 @@ function isJavaScriptDictionary(value) {
 }
 
 function isDictionary(value) {
-  return isJavaScriptDictionary(value) || hasSelector(value, "objectForKey");
+  return hasSelector(value, "objectForKey") || isJavaScriptDictionary(value);
 }
 
 function isArray(value) {
-  return Array.isArray(value) || hasSelector(value, "objectAtIndex");
+  return hasSelector(value, "objectAtIndex") || Array.isArray(value);
 }
 
 function isData(value) {
@@ -93,59 +104,76 @@ function isData(value) {
 }
 
 function dictionaryGet(dictionary, key) {
-  if (isJavaScriptDictionary(dictionary)) return dictionary[key];
-  try {
-    return dictionary.objectForKey($(key));
-  } catch (_) {
+  if (hasSelector(dictionary, "objectForKey")) {
     try {
-      return dictionary[key];
+      return dictionary.objectForKey($(key));
     } catch (_) {
-      return null;
+      // Fall through to plain JavaScript access.
     }
   }
+  if (isJavaScriptDictionary(dictionary)) return dictionary[key];
+  return null;
 }
 
 function dictionarySet(dictionary, key, value) {
+  if (hasSelector(dictionary, "setObjectForKey")) {
+    try {
+      dictionary.setObjectForKey(ObjC.wrap(value), $(key));
+      return;
+    } catch (_) {
+      try {
+        dictionary.setObjectForKey(value, $(key));
+        return;
+      } catch (_) {
+        // Fall through to plain JavaScript assignment.
+      }
+    }
+  }
   if (isJavaScriptDictionary(dictionary)) {
     dictionary[key] = value;
     return;
   }
-  try {
-    dictionary.setObjectForKey(ObjC.wrap(value), $(key));
-  } catch (_) {
-    dictionary.setObjectForKey(value, $(key));
-  }
+  throw new Error("Cannot set plist dictionary key: " + key);
 }
 
 function dictionaryKeys(dictionary) {
-  if (isJavaScriptDictionary(dictionary)) return Object.keys(dictionary);
-  try {
-    let keys = dictionary.allKeys;
-    if (typeof keys === "function") keys = dictionary.allKeys();
-    return ObjC.deepUnwrap(keys).map(function (key) {
-      return String(key);
-    });
-  } catch (_) {
-    return [];
+  if (hasSelector(dictionary, "allKeys")) {
+    try {
+      let keys = dictionary.allKeys;
+      if (typeof keys === "function") keys = dictionary.allKeys();
+      return ObjC.deepUnwrap(keys).map(function (key) {
+        return String(key);
+      });
+    } catch (_) {
+      // Fall through to JavaScript keys.
+    }
   }
+  if (isJavaScriptDictionary(dictionary)) return Object.keys(dictionary);
+  return [];
 }
 
 function arrayCount(array) {
-  if (Array.isArray(array)) return array.length;
-  try {
-    return Number(array.count);
-  } catch (_) {
-    return 0;
+  if (hasSelector(array, "objectAtIndex")) {
+    try {
+      return Number(array.count);
+    } catch (_) {
+      // Fall through to a JavaScript array.
+    }
   }
+  if (Array.isArray(array)) return array.length;
+  return 0;
 }
 
 function arrayGet(array, index) {
-  if (Array.isArray(array)) return array[index];
-  try {
-    return array.objectAtIndex(index);
-  } catch (_) {
-    return null;
+  if (hasSelector(array, "objectAtIndex")) {
+    try {
+      return array.objectAtIndex(index);
+    } catch (_) {
+      // Fall through to a JavaScript array.
+    }
   }
+  if (Array.isArray(array)) return array[index];
+  return null;
 }
 
 function environmentValue(name) {
