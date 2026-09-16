@@ -115,16 +115,24 @@ function periodFor(date) {
   return "evening";
 }
 
+function isFoundationKind(value, foundationClass) {
+  return Boolean(
+    value &&
+      typeof value.isKindOfClass === "function" &&
+      value.isKindOfClass(foundationClass)
+  );
+}
+
 function isDictionary(value) {
-  return Boolean(value && value.isKindOfClass($.NSDictionary.class));
+  return isFoundationKind(value, $.NSDictionary.class);
 }
 
 function isArray(value) {
-  return Boolean(value && value.isKindOfClass($.NSArray.class));
+  return isFoundationKind(value, $.NSArray.class);
 }
 
 function isData(value) {
-  return Boolean(value && value.isKindOfClass($.NSData.class));
+  return isFoundationKind(value, $.NSData.class);
 }
 
 function mutablePlist(path) {
