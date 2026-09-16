@@ -52,128 +52,67 @@ function stringValue(value) {
   return String(unwrapped);
 }
 
-function hasSelector(value, name) {
-  if (isNilLike(value)) return false;
+function normalizePlist(value) {
   try {
-    return value[name] !== undefined && value[name] !== null;
+    const normalized = ObjC.deepUnwrap(value);
+    return normalized === undefined ? value : normalized;
   } catch (_) {
-    return false;
+    return value;
   }
-}
-
-function isJavaScriptDictionary(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-
-  // JXA's Objective-C proxies can report Object.prototype as their prototype,
-  // so selector presence must win over prototype-based JS object detection.
-  if (
-    hasSelector(value, "objectForKey") ||
-    hasSelector(value, "objectAtIndex") ||
-    hasSelector(value, "base64EncodedStringWithOptions")
-  ) {
-    return false;
-  }
-
-  try {
-    const prototype = Object.getPrototypeOf(value);
-    return prototype === Object.prototype || prototype === null;
-  } catch (_) {
-    return false;
-  }
-}
-
-function isDictionary(value) {
-  return hasSelector(value, "objectForKey") || isJavaScriptDictionary(value);
-}
-
-function isArray(value) {
-  return hasSelector(value, "objectAtIndex") || Array.isArray(value);
 }
 
 function isData(value) {
   if (isNilLike(value)) return false;
-  if (hasSelector(value, "base64EncodedStringWithOptions")) return true;
   try {
-    if (hasSelector(value, "isKindOfClass")) {
+    if (value.base64EncodedStringWithOptions !== undefined) return true;
+  } catch (_) {
+    // Not an Objective-C NSData proxy.
+  }
+  try {
+    if (value.isKindOfClass !== undefined) {
       return Boolean(value.isKindOfClass($.NSData.class));
     }
   } catch (_) {
-    // Some JXA bridge variants do not expose NSObject selectors here.
+    // Plain JavaScript values do not expose NSObject selectors.
   }
   return false;
 }
 
+function isDictionary(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !isData(value)
+  );
+}
+
+function isArray(value) {
+  return Array.isArray(value);
+}
+
 function dictionaryGet(dictionary, key) {
-  if (hasSelector(dictionary, "objectForKey")) {
-    try {
-      return dictionary.objectForKey($(key));
-    } catch (_) {
-      // Fall through to plain JavaScript access.
-    }
-  }
-  if (isJavaScriptDictionary(dictionary)) return dictionary[key];
-  return null;
+  if (!isDictionary(dictionary)) return null;
+  return dictionary[key];
 }
 
 function dictionarySet(dictionary, key, value) {
-  if (hasSelector(dictionary, "setObjectForKey")) {
-    try {
-      dictionary.setObjectForKey(ObjC.wrap(value), $(key));
-      return;
-    } catch (_) {
-      try {
-        dictionary.setObjectForKey(value, $(key));
-        return;
-      } catch (_) {
-        // Fall through to plain JavaScript assignment.
-      }
-    }
+  if (!isDictionary(dictionary)) {
+    throw new Error("Cannot set plist dictionary key: " + key);
   }
-  if (isJavaScriptDictionary(dictionary)) {
-    dictionary[key] = value;
-    return;
-  }
-  throw new Error("Cannot set plist dictionary key: " + key);
+  dictionary[key] = value;
 }
 
 function dictionaryKeys(dictionary) {
-  if (hasSelector(dictionary, "allKeys")) {
-    try {
-      let keys = dictionary.allKeys;
-      if (typeof keys === "function") keys = dictionary.allKeys();
-      return ObjC.deepUnwrap(keys).map(function (key) {
-        return String(key);
-      });
-    } catch (_) {
-      // Fall through to JavaScript keys.
-    }
-  }
-  if (isJavaScriptDictionary(dictionary)) return Object.keys(dictionary);
-  return [];
+  return isDictionary(dictionary) ? Object.keys(dictionary) : [];
 }
 
 function arrayCount(array) {
-  if (hasSelector(array, "objectAtIndex")) {
-    try {
-      return Number(array.count);
-    } catch (_) {
-      // Fall through to a JavaScript array.
-    }
-  }
-  if (Array.isArray(array)) return array.length;
-  return 0;
+  return Array.isArray(array) ? array.length : 0;
 }
 
 function arrayGet(array, index) {
-  if (hasSelector(array, "objectAtIndex")) {
-    try {
-      return array.objectAtIndex(index);
-    } catch (_) {
-      // Fall through to a JavaScript array.
-    }
-  }
-  if (Array.isArray(array)) return array[index];
-  return null;
+  return Array.isArray(array) ? array[index] : null;
 }
 
 function environmentValue(name) {
@@ -284,12 +223,10 @@ function mutablePlist(path) {
   );
   if (isNilLike(value)) throw new Error("Cannot parse wallpaper store at " + path);
 
-  // Test/diagnostic mode that emulates systems where JXA exposes plist
-  // containers as ordinary JavaScript objects rather than Foundation proxies.
-  if (environmentValue("TAHOE_MOTION_FORCE_JS_PLIST") === "1") {
-    return ObjC.deepUnwrap(value);
-  }
-  return value;
+  // Normalize Foundation NSArray/NSDictionary containers into a normal JS graph.
+  // This removes macOS/JXA bridge differences while preserving leaf ObjC values
+  // such as NSData where no native JavaScript scalar representation exists.
+  return normalizePlist(value);
 }
 
 function encodedConfiguration(assetID) {
@@ -311,12 +248,13 @@ function currentAssetID(choice) {
   const raw = dictionaryGet(choice, "Configuration");
   if (!isData(raw)) return null;
   try {
-    const decoded = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
+    const decodedNative = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(
       raw,
       $.NSPropertyListImmutable,
       null,
       null
     );
+    const decoded = normalizePlist(decodedNative);
     if (!isDictionary(decoded)) return null;
     const assetID = dictionaryGet(decoded, "assetID");
     return isNilLike(assetID) ? null : stringValue(assetID);
@@ -385,8 +323,10 @@ function updateDesktopTree(root, assetID, encoded, report) {
 
 function savePlist(path, value) {
   let propertyList = value;
-  if (isJavaScriptDictionary(value) || Array.isArray(value)) {
+  try {
     propertyList = ObjC.wrap(value);
+  } catch (_) {
+    // If the bridge already returned a Foundation object, serialize it directly.
   }
   const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(
     propertyList,
