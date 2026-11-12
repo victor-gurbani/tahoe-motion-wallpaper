@@ -19,3 +19,4 @@ jobs:
           /bin/bash -n tests/test-install.sh
           /usr/bin/plutil -lint tests/fixtures/Index.plist
           /bin/bash tests/test-install.sh
+          node tests/test-recovery.js

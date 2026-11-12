@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-VERSION="v1.0.2"
+VERSION="v1.0.3"
 REPOSITORY="victor-gurbani/tahoe-motion-wallpaper"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${VERSION}"
-EXPECTED_SCRIPT_GIT_SHA1="de8bdca9e19bb30831c7f60d2c04a9d41e4113c3"
+EXPECTED_SCRIPT_GIT_SHA1="5cfd7291ab4095c4a865e9679d03ca6dc7627f1b"
 LABEL="com.varfield.tahoe-motion-wallpaper"
 
 if [ "$(id -u)" -eq 0 ]; then

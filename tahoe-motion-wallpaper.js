@@ -427,6 +427,52 @@ function parseArguments(argv) {
   return options;
 }
 
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
+function assetDownloadScript(asset, p, temporary, destination) {
+  return [
+    "set -euo pipefail",
+    "videos=" + shellQuote(p.videos),
+    "url=" + shellQuote(asset.url),
+    "tmp=" + shellQuote(temporary),
+    "dest=" + shellQuote(destination),
+    "trap 'rm -f -- \"$tmp\"' EXIT",
+    "avail=$(/bin/df -Pk \"$videos\" | /usr/bin/awk 'NR == 2 {print $4}')",
+    "[ \"$avail\" -ge 614400 ] || { echo 'Not enough free disk space to re-download Tahoe aerial' >&2; exit 1; }",
+    "/usr/bin/curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --connect-timeout 15 --max-time 240 --max-filesize 629145600 --retry 2 --url \"$url\" --output \"$tmp\"",
+    "sz=$(/usr/bin/stat -f '%z' \"$tmp\")",
+    "magic=$(/usr/bin/od -An -t x1 -j 4 -N 4 \"$tmp\" | /usr/bin/tr -d ' \\n')",
+    "[ \"$sz\" -ge 10485760 ] && [ \"$magic\" = '66747970' ] || { echo 'Invalid QuickTime asset downloaded' >&2; exit 1; }",
+    "/bin/chmod 600 \"$tmp\"",
+    "/bin/mv -f \"$tmp\" \"$dest\"",
+    "trap - EXIT",
+  ].join("; ");
+}
+
+function ensureDesiredAssetDownloaded(asset, p, dryRun) {
+  if (asset.downloaded) return asset;
+  if (dryRun || environmentValue("TAHOE_MOTION_NO_DOWNLOAD") === "1") {
+    throw new Error(asset.label + " is not downloaded");
+  }
+  if (!/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/.test(asset.id)) {
+    throw new Error("Invalid Apple asset ID for " + asset.label);
+  }
+  if (String(asset.url).indexOf("https://sylvan.apple.com/") !== 0) {
+    throw new Error("Refusing non-Apple asset URL for " + asset.label);
+  }
+  ensureDirectory(p.videos);
+  const destination = p.videos + "/" + asset.id + ".mov";
+  const temporary = p.videos + "/." + asset.id + ".download." + $.NSProcessInfo.processInfo.processIdentifier;
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  app.doShellScript("/bin/bash -c " + shellQuote(assetDownloadScript(asset, p, temporary, destination)));
+  asset.downloaded = true;
+  asset.path = destination;
+  return asset;
+}
+
 function run(argv) {
   const options = parseArguments(argv);
   if (options.help) {
@@ -448,8 +494,8 @@ function run(argv) {
   const p = paths();
   const now = new Date();
   const desiredPeriod = options.period || periodFor(now);
-  const assets = resolveAssets(true);
-  const desired = assets[desiredPeriod];
+  const assets = resolveAssets(false);
+  const desired = ensureDesiredAssetDownloaded(assets[desiredPeriod], p, options.dryRun);
   const index = mutablePlist(p.store);
   const report = {
     period: desiredPeriod,

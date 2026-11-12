@@ -20,7 +20,7 @@ required. It uses macOS's built-in JavaScript for Automation and a LaunchAgent.
 Paste this into Terminal:
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.2/install.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.3/install.sh)"
 ```
 
 The installer:
@@ -35,6 +35,16 @@ The installer:
 
 Apple's videos are downloaded directly from Apple and are **not** included in
 this repository.
+
+### Recovery after a video is removed
+
+Only the currently selected time-of-day video must be present. If macOS or a
+cleanup tool removes that video after installation, the next scheduled switch
+re-downloads just that variant from Apple's HTTPS CDN, with bounded downloads,
+a free-space check and QuickTime validation. A missing evening video no longer
+blocks the morning or daytime wallpaper. The --status and --dry-run options
+never download or change preferences. Set TAHOE_MOTION_NO_DOWNLOAD=1 to disable recovery.
+
 
 ## Native macOS limitation
 
@@ -71,7 +81,7 @@ Test a specific variant:
 ## Uninstall
 
 ```sh
-/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.2/uninstall.sh)"
+/bin/bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/victor-gurbani/tahoe-motion-wallpaper/v1.0.3/uninstall.sh)"
 ```
 
 Uninstalling removes the automation but preserves the current wallpaper,
